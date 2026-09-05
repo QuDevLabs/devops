@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+*.secret
+argocd/chart/charts/
+/tmp/

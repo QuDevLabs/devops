@@ -1,0 +1,14 @@
+argo-cd:
+  global:
+    domain: argocd.localhost
+
+  server:
+    service:
+      type: LoadBalancer
+
+  configs:
+    repositories:
+      devops:
+        url: https://github.com/QuDevLabs/devops.git
+        type: git
+        name: devops

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: argocd
+description: Umbrella chart for ArgoCD self-management via App-of-Apps bootstrap
+type: application
+version: 0.1.0
+appVersion: "3.5.0"
+dependencies:
+  - name: argo-cd
+    version: 10.3.0
+    repository: https://argoproj.github.io/argo-helm
