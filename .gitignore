@@ -1,3 +1,4 @@
+.trae/**
 .env
 .env.*
 !.env.example
@@ -6,3 +7,4 @@
 *.secret
 **/charts/
 /tmp/
+.dev-pg-*.pid

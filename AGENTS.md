@@ -40,7 +40,7 @@ Do not `helm install` / `kubectl apply` manually. Follow:
    helm lint infra/<name> && helm template <name> infra/<name> -n <ns>
    ```
 3. **Create Application CRD**: `bootstrap/apps/<name>.yaml` — copy `bootstrap/apps/argocd.yaml`, change only name/path/release/namespace; add `ignoreDifferences` for any runtime Secret
-4. **Push**: `source .env && git add/commit/push` — ArgoCD auto-syncs
+4. **Push**: `git add/commit/push` — SSH deploy key handles auth, ArgoCD auto-syncs
 5. **Inject secrets** (push does NOT do this):
    ```bash
    kubectl -n <ns> create secret generic <cred-name> \
