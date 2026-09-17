@@ -4,5 +4,5 @@
 .DS_Store
 .vscode/
 *.secret
-argocd/chart/charts/
+**/charts/
 /tmp/

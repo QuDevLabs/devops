@@ -1,0 +1,28 @@
+postgresql:
+  architecture: standalone
+
+  auth:
+    existingSecret: postgresql-credentials
+    # Explicitly use Bitnami defaults — mirrors what postgresql-credentials
+    # Secret will contain. Avoids "key name changed" surprises on chart upgrade.
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+      replicationPasswordKey: replication-password
+
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    service:
+      type: ClusterIP
+
+  metrics:
+    enabled: false
