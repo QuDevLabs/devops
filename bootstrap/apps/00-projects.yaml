@@ -1,0 +1,61 @@
+# AppProjects — synced BEFORE Applications (wave -1) by the root app.
+# Policy (see AGENTS.md §1): strict namespace whitelist; `default` is locked empty.
+# Adding a component = add its namespace to the right project's destinations HERE.
+# No finalizers on purpose: deleting this file must not cascade-delete every app.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: ArgoCD self-management (root app + argocd umbrella chart)
+  sourceRepos:
+  - https://github.com/QuDevLabs/devops.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: argocd
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Middleware components (infra/*) — strict namespace whitelist
+  sourceRepos:
+  - https://github.com/QuDevLabs/devops.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: postgresql
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Application workloads (apps/) — placeholder, whitelist namespaces as workloads land
+  sourceRepos:
+  - https://github.com/QuDevLabs/devops.git
+  destinations: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: LOCKED — every Application must declare an explicit project (argocd/infra/workloads)
+  sourceRepos: []
+  destinations: []

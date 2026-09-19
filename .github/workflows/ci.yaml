@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: azure/setup-helm@v4
+      with:
+        version: v4.2.2   # keep in sync with host helm (AGENTS.md §6)
+
+    - name: argocd/chart — dependency build + lint + template
+      run: |
+        helm dependency build argocd/chart
+        helm lint argocd/chart
+        helm template argocd argocd/chart -n argocd > /dev/null
+
+    - name: infra/* — dependency build + lint + template
+      run: |
+        for c in infra/*/; do
+          [ -f "${c}Chart.yaml" ] || continue
+          echo "=== ${c} ==="
+          helm dependency build "${c}"
+          helm lint "${c}"
+          helm template "$(basename "${c}")" "${c}" > /dev/null
+        done

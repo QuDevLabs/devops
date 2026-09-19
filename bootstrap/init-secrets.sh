@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Inject runtime secrets from .env into K8s clusters.
-# Auto-generates missing passwords (writes back to .env).
-# Idempotent: no change if Secrets exist and values match.
-# Usage: source .env && bootstrap/init-secrets.sh [--force]
+# Inject runtime secrets from .env into K8s clusters:
+#   - argocd/argocd-repo-creds-devops   (GITHUB_TOKEN → repo read, prefix-matched)
+#   - postgresql/postgresql-credentials (auto-generates missing passwords → .env)
+# Idempotent + atomic: kubectl create --dry-run=client | apply (no delete window).
+# Usage: bootstrap/init-secrets.sh [--force] [--recover]   (sources ../.env itself)
 
 set -euo pipefail
 
@@ -138,46 +139,46 @@ inject() {
     args+=(--from-literal="${key}=${!envvar}")
   done
 
-  # Create or recreate
-  local exists=false
-  local -a existing_keys=()
-  if kubectl get secret "$secret" -n "$ns" --no-headers 2>/dev/null; then
-    exists=true
-    # Read existing keys
-    existing_keys=$(kubectl get secret "$secret" -n "$ns" -o jsonpath='{!range .data}{@.key}{" "}{end}' 2>/dev/null || true)
-  fi
-
-  if [ "$exists" = true ] && [ "$FORCE" = false ]; then
-    # Check if all our keys already match
-    local changed=false
-    for pair in "$@"; do
-      key="${pair%%=*}"
-      envvar="${pair##*=}"
-      local existing_val
-      existing_val=$(kubectl get secret "$secret" -n "$ns" -o jsonpath="{.data.${key}}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
-      # shellcheck disable=SC2086
-      if [ "$existing_val" != "${!envvar}" ]; then
-        changed=true
-        break
-      fi
-    done
-    if [ "$changed" = false ]; then
-      echo "  ✓ Secret unchanged. SKIP."
-      return 0
-    fi
-    echo "  Secret values differ, updating..."
-    kubectl delete secret "$secret" -n "$ns" --ignore-not-found=true
-  elif [ "$exists" = true ] && [ "$FORCE" = true ]; then
-    echo "  --force: recreating..."
-    kubectl delete secret "$secret" -n "$ns" --ignore-not-found=true
-  fi
-
-  echo "  Creating Secret $ns/$secret with ${#args[@]} keys..."
-  kubectl create secret generic "$secret" -n "$ns" "${args[@]}"
+  # Atomic + idempotent: no delete window, rotation = in-place update.
+  # (apply is a no-op when data is unchanged, so --force needs no special path)
+  kubectl create secret generic "$secret" -n "$ns" "${args[@]}" \
+    --dry-run=client -o yaml | kubectl apply -f -
   echo "  ✓ OK"
 }
 
+# ---- ArgoCD repo credentials (GITHUB_TOKEN → repository-creds template) ----
+# ArgoCD matches this secret's `url` as a PREFIX against repo URLs, so one
+# token covers every repo under the org. Out-of-band by design: the token
+# never enters git, and the secret carries no helm tracking labels so the
+# argocd app's selfHeal never touches it.
+inject_repo_creds() {
+  echo "--- argocd / argocd-repo-creds-devops ---"
+  if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "  WARN: GITHUB_TOKEN empty — skipping repo credentials."
+    echo "        Harmless while the repo is public; REQUIRED once it goes private."
+    return 0
+  fi
+  if ! kubectl get namespace argocd >/dev/null 2>&1; then
+    echo "  namespace 'argocd' not found — ArgoCD not installed yet? Skipping."
+    echo "  (install-argocd.sh re-runs this script after installing ArgoCD)"
+    return 0
+  fi
+  local prefix="${GITHUB_REPO_URL:-https://github.com/QuDevLabs/devops.git}"
+  prefix="${prefix%/*}"   # https://github.com/QuDevLabs
+  kubectl create secret generic argocd-repo-creds-devops -n argocd \
+    --from-literal=type=git \
+    --from-literal=url="$prefix" \
+    --from-literal=username=git \
+    --from-literal=password="${GITHUB_TOKEN}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl label secret argocd-repo-creds-devops -n argocd \
+    argocd.argoproj.io/secret-type=repository-creds --overwrite >/dev/null
+  echo "  ✓ OK (repository-creds template, url prefix ${prefix})"
+}
+
 # ---- Define components ----
+inject_repo_creds
+
 inject postgresql postgresql-credentials \
   postgres-password=POSTGRES_PASSWORD \
   password=POSTGRES_USER_PASSWORD \
@@ -186,4 +187,4 @@ inject postgresql postgresql-credentials \
 echo ""
 echo "=== Done ==="
 echo "ArgoCD ignoreDifferences on Secret /data protects these from overwrite."
-echo "To force recreate all: bootstrap/init-secrets.sh --force"
+echo "Rotation: change .env → re-run (apply updates in place; --force accepted, no-op)."

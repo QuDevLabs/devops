@@ -6,7 +6,7 @@ metadata:
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: argocd
   source:
     repoURL: https://github.com/QuDevLabs/devops.git
     targetRevision: main
