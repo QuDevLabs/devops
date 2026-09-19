@@ -4,21 +4,23 @@
 
 ## 当前运行状态
 
-| 组件 | 命名空间 | 状态 | 访问 |
-|------|---------|------|------|
-| ArgoCD | argocd | ✅ Healthy | https://argocd.localhost |
-| PostgreSQL 18 | postgresql | ✅ Running | `bootstrap/dev.sh pg` |
-| guestbook (示例) | default | ✅ Healthy | — |
+| 组件 | 命名空间 | AppProject | 状态 | 访问 |
+|------|---------|-----------|------|------|
+| ArgoCD | argocd | argocd | ✅ Healthy | https://argocd.localhost |
+| PostgreSQL 18 | postgresql | infra | ✅ Running | `bootstrap/dev.sh pg` |
+
+CI:每次 push/PR 跑 `helm lint` + `helm template`(`.github/workflows/ci.yaml`)。
 
 ## 快速开始
 
 ```bash
-git clone git@github.com:QuDevLabs/devops.git && cd devops
-cp .env.example .env                     # 填 GITHUB_TOKEN（ArgoCD 读 repo 需要）
-./bootstrap/dev.sh setup                 # 一键：.env → ArgoCD → helm → secrets → pg 验证
+git clone https://github.com/QuDevLabs/devops.git && cd devops
+cp .env.example .env                     # 填 GITHUB_TOKEN（单个 PAT：git push + ArgoCD 读 repo）
+./bootstrap/dev.sh setup                 # 一键：.env → ArgoCD → helm → secrets → projects → root app → pg 验证
 ```
 
 setup 过程中 ArgoCD admin 密码和 PostgreSQL 密码会自动生成并写回 `.env`，不需要手动操作。
+git push 走 HTTPS，凭据来自 shell 环境里的 `GITHUB_TOKEN`（push 前先 `source .env`）。
 
 ### 日常
 
@@ -33,12 +35,13 @@ setup 过程中 ArgoCD admin 密码和 PostgreSQL 密码会自动生成并写回
 
 ```bash
 # 1. 把 Helm chart 放在 infra/<name>/，Application CRD 放在 bootstrap/apps/<name>.yaml
-#    参考 infra/postgresql/ 和 bootstrap/apps/postgresql.yaml
+#    参考 infra/postgresql/ 和 bootstrap/apps/postgresql.yaml（project: infra）
+# 2. 把目标 namespace 加进 bootstrap/apps/00-projects.yaml 的 infra 白名单（严格 ns 白名单）
 
-# 2. push 后 ArgoCD root app 自动发现 + sync
+# 3. push 后 ArgoCD root app 自动发现 + sync（CI 先跑 lint/template）
 git add -A && git commit -m "feat(<name>): add <component>" && git push
 
-# 3. 如果有 runtime secrets（密码不进 Git）
+# 4. 如果有 runtime secrets（密码不进 Git）
 #    - 在 Application CRD 里加 ignoreDifferences for Secret
 #    - 在 bootstrap/init-secrets.sh 底部加 inject <ns> <secret> key1=ENV_VAR ...
 #    - 执行 ./bootstrap/dev.sh setup 重新注入
@@ -48,22 +51,25 @@ git add -A && git commit -m "feat(<name>): add <component>" && git push
 
 ```
 .
-├── AGENTS.md                      # 给 AI/协作者的规则 — invariant、环境 quirks、部署清单
+├── AGENTS.md                      # 给 AI/协作者的规则 — invariant、环境 quirks、部署清单、prod 接缝
 ├── README.md                      # 你正在读的
 ├── .env.example                   # 环境变量模板（git-tracked，不含值）
 ├── .gitignore
+├── .github/workflows/ci.yaml      # helm lint + template（push/PR）
 │
 ├── bootstrap/
-│   ├── root-app.yaml              # root Application：扫描 bootstrap/apps/ 下所有 CRD
+│   ├── root-app.yaml              # root Application（project: argocd）：扫描 bootstrap/apps/
 │   ├── apps/
+│   │   ├── 00-projects.yaml       # AppProjects（wave -1）：argocd/infra/workloads + default 锁死
 │   │   ├── argocd.yaml
 │   │   └── postgresql.yaml
-│   ├── install-argocd.sh          # 一次性 bootstrap（helm install ArgoCD）
-│   ├── init-secrets.sh            # 幂等注入 runtime secrets（密码为空自动生成）
-│   └── dev.sh                     # 日常入口：setup / pg / pf / pf-stop / pg-status
+│   ├── install-argocd.sh          # 一次性 bootstrap（helm → secrets → projects → root app）
+│   ├── init-secrets.sh            # 幂等注入 runtime secrets（repo creds + PG，原子 apply）
+│   └── dev.sh                     # 日常入口：setup / recover / pg / pf / pf-stop / pg-status
 │
 ├── argocd/chart/                  # ArgoCD 自己的 Helm umbrella chart
 │   ├── Chart.yaml
+│   ├── Chart.lock                 # digest 锁定，必须提交
 │   └── values.yaml
 │
 └── infra/                         # 各中间件的 Helm umbrella chart
@@ -78,15 +84,17 @@ git add -A && git commit -m "feat(<name>): add <component>" && git push
 - `.env`（含所有密码/token）**永远不进 Git** — `.gitignore` 已覆盖
 - `.env.example` 只列变量名，含注释，不含值
 - 密码注入后，ArgoCD 的 `ignoreDifferences` 保护 Secret `/data` 不被覆盖
-- 密码轮换：改 `.env` → `./bootstrap/init-secrets.sh --force`
-- GitHub token 只用于 ArgoCD repo-server 读 repo（deploy key 模式）
+- 密码轮换：改 `.env` → `./bootstrap/init-secrets.sh`（apply 原地更新，`--force` 已无特殊语义）
+- `GITHUB_TOKEN` = 单个 PAT（限本 repo），同时用于 git push（HTTPS）和 ArgoCD 读 repo
+  （注入为 `argocd-repo-creds-devops`，url 前缀匹配 `https://github.com/QuDevLabs`，repo 转私有后生效）
+- AppProject 隔离：`argocd`（自管）/ `infra`（中间件，严格 ns 白名单）/ `workloads`（预留）；`default` 锁死
 
 ## 已知局限
 
 | 局限 | 原因 | 规避 |
 |------|------|------|
-| macOS 主机 → Docker Hub OCI 不通 | OrbStack 网络隔离 | 用 Docker 容器跑 helm（dev.sh setup 自动处理） |
-| macOS 主机 → GitHub HTTPS 不通 | 同上 | 用 SSH deploy key push |
+| macOS 主机 → Docker Hub OCI 不通 | 主机侧网络问题（OrbStack VM 内正常） | 用 Docker 容器跑 helm（dev.sh setup 自动处理） |
+| macOS 主机 → GitHub release 资产下载不通 | 同上（git/API/pages 正常，仅 tgz CDN 断） | install-argocd.sh 自动 Docker fallback |
 | Kubernetes LoadBalancer IP 不可达 | OrbStack lb 映射到 localhost | 用 `*.localhost` 域名，不用 sslip.io |
 | 删掉 postgresql namespace = 数据没了 | OrbStack local-path ReclaimPolicy=Delete | 别删 namespace |
 

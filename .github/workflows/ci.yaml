@@ -15,6 +15,11 @@ jobs:
       with:
         version: v4.2.2   # keep in sync with host helm (AGENTS.md §6)
 
+    # helm 4 requires HTTP(S) repos to be registered before dependency build
+    # (helm 3 auto-resolved by URL). OCI registries need no registration.
+    - name: register helm repositories
+      run: helm repo add argo https://argoproj.github.io/argo-helm
+
     - name: argocd/chart — dependency build + lint + template
       run: |
         helm dependency build argocd/chart

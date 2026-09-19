@@ -153,6 +153,7 @@ cmd_setup() {
 
   # Step 5: push (manual reminder — git is tricky to automate safely)
   echo "--- 5. Push to GitHub ---"
+  echo "  source .env   # git push auth reads \$GITHUB_TOKEN from the shell env"
   echo "  git add -A && git commit -m 'chore: setup' && git push"
   echo ""
 
